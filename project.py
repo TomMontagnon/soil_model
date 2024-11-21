@@ -1,20 +1,42 @@
+import random
 import numpy as np
 import matplotlib.pyplot as plt
+import noise
 from mpl_toolkits.mplot3d import Axes3D
+from scipy.ndimage import sobel, gaussian_filter, binary_erosion
+
+DEPTH = 50
 
 class SandSimulator:
-    def __init__(self, grid_size, angle_of_repose):
+    def __init__(self, grid_size=(1000,1000), random_seed=None, angle_of_repose=30):
         """
         Initialize the sand simulator with a height map and repose angle.
         :param grid_size: Tuple (rows, cols) for the height map size.
         :param angle_of_repose: The repose angle of the sand (in degrees).
         """
-        self.grid_size = grid_size
-        self.angle_of_repose = np.tan(np.radians(angle_of_repose))  # Convert to maximum slope
-        self.height_map = np.zeros(grid_size)  # Initialize a flat height map
         self.tool_trajectory = []  # Store the tool's trajectory
-    
-        self.height_map[0,0] = 1
+        self.grid_size = grid_size
+        self.height_map = np.zeros(grid_size)  # Initialize a flat height map
+        if random_seed is not None:
+            print("oui")
+            for x in range(grid_size[0]):
+                for y in range(grid_size[1]):
+                    new_value = noise.snoise2(
+                          x/1000,
+                          y/1000,
+                          octaves=3,
+                          persistence=0.95,
+                          lacunarity=2,
+                          repeatx=grid_size[0],
+                          repeaty=grid_size[1],
+                          base=random_seed
+                         )
+                    self.height_map[x][y] = int(50*new_value)
+        #self.height_map[400,400] = -50000000
+        self.height_map[0,0] = -500
+
+        
+        self.angle_of_repose = np.tan(np.radians(angle_of_repose))  # Convert to maximum slope
 
     def simulate_erosion(self, iterations=50):
         """
@@ -63,7 +85,16 @@ class SandSimulator:
         ax.set_xlabel("X")
         ax.set_ylabel("Y")
         ax.set_zlabel("Height")
-        plt.legend()
+        plt.legend("")
+        plt.show()
+
+    def display_height_map(self):
+        """
+        Affiche la height-map actuelle.
+        """
+        plt.imshow(self.height_map, cmap="terrain", origin="upper")
+        plt.colorbar(label="Hauteur")
+        plt.title("Height Map - Simulateur de Sable")
         plt.show()
 
 
@@ -93,12 +124,23 @@ class Tool:
         x, y = self.position
         rows, cols = self.shape.shape
         grid = self.simulator.height_map
-
+        
         # Ensure the tool stays within the grid bounds
         x_end = min(x + rows, grid.shape[0])
         y_end = min(y + cols, grid.shape[1])
         
-        grid[x:x_end, y:y_end] -= 0.1*self.shape[:x_end - x, :y_end - y]
+        #grid[x:x_end, y:y_end] -= 0.1*self.shape[:x_end - x, :y_end - y]
+        chunk = grid[x:x_end, y:y_end]
+        chunk_upped = chunk + DEPTH
+        collision_zone = chunk_upped*self.shape
+        soil_amount = np.sum(collision_zone) 
+        if soil_amount < 0: # Let's flat the zone with the mean
+            grid[x:x_end, y:y_end][self.shape == 1] = np.mean(grid[x:x_end,y:y_end][self.shape == 1])
+        else: # 
+            grid[x:x_end, y:y_end][self.shape == 1] = -DEPTH
+            #grid[0,0] += soil_amount #TODO NEW HEAP AROUND
+
+
 
     def follow_trajectory(self, trajectory):
         """
@@ -110,16 +152,74 @@ class Tool:
             #self.simulator.simulate_erosion(iterations=10)  # Simulate erosion after each move
 
 
-def circle_generator(radius=100):
-    diameter = radius * 2
-    tool_shape = np.zeros((diameter, diameter), dtype=int)
+
+def generate_normal_map(shape, mesh):
+    X=mesh[0]
+    Y=mesh[1]
+    # create contours 
+    shape = shape.astype(int)
+    eroded_shape = binary_erosion(shape)
+    contours = (shape - eroded_shape).astype(bool)
     
-    # Generate the circle
-    for y in range(diameter):
-        for x in range(diameter):
-            if (x - radius)**2 + (y - radius)**2 <= radius**2:
-                tool_shape[y, x] = 1
-    return tool_shape
+    # Apply a Gaussian filter to smooth the shape
+    smoothed_shape = gaussian_filter(shape.astype(float), sigma=2)
+
+    # Compute the gradient of the smoothed shape
+    gradient_y_shape, gradient_x_shape = np.gradient(smoothed_shape)
+
+    # Normalize to obtain unit vectors
+    length_shape = np.sqrt(gradient_x_shape**2 + gradient_y_shape**2)
+    length_shape[length_shape == 0] = 1  # Avoid division by zero
+    normal_x_shape = -gradient_x_shape / length_shape  # Inversion for outward direction
+    normal_y_shape = -gradient_y_shape / length_shape  # Inversion for outward direction
+
+    # Extract normal vectors only at detected contours
+    normal_x_shape_contours = normal_x_shape[contours]
+    normal_y_shape_contours = normal_y_shape[contours]
+    X_contours = X[contours]
+    Y_contours = Y[contours]
+
+    return (X_contours,
+            Y_contours,
+            normal_x_shape_contours,
+            normal_y_shape_contours)
+
+def display_normal_map(shape, box):
+    size=shape.shape[0]
+    # Visualize the patatoid and contour normal vectors
+    plt.figure(figsize=(10, 10))
+    plt.imshow(shape, cmap='gray', origin='lower', extent=[-size / 2, size / 2, -size / 2, size / 2])
+    plt.quiver(box[0], box[1], box[2], box[3], color='blue', scale=20)
+    plt.title("Patatoid with normal vectors at contours")
+    plt.xlabel("X")
+    plt.ylabel("Y")
+    plt.axis("equal")
+    plt.show()
+
+def disk_generator(radius=100):
+    #TODO rename  parotut tool et shape
+    size = radius*2
+
+    x = np.linspace(-size / 2, size / 2, size)
+    y = np.linspace(-size / 2, size / 2, size)
+    X, Y = np.meshgrid(x, y)
+
+    disk = ((X**2 + Y**2) <= radius**2).astype(int)
+    return disk, (X,Y)
+
+def patatoide_generator(size=50):
+    scale_factor = 0.25  # Shape size
+    x = np.linspace(-size / 2, size / 2, size)
+    y = np.linspace(-size / 2, size / 2, size)
+    X, Y = np.meshgrid(x, y)
+
+    # Create the patatoid
+    patatoid = ((X**2) / (900 * scale_factor) + 
+                (Y**2) / (1600 * scale_factor) +
+                0.05 * np.sin(5 * X) * np.cos(5 * Y)) <= 1
+
+    return patatoid, (X,Y)
+
 
 def generate_linear_trajectory(start_point, end_point, N):
     start_point = np.array(start_point)
@@ -132,18 +232,16 @@ def generate_linear_trajectory(start_point, end_point, N):
     
     return trajectory
 
-# Example usage
-if __name__ == "__main__":
-
+def main():
     # Initialize the simulator
-    simulator = SandSimulator(grid_size=(1000, 1000), angle_of_repose=30)
+    simulator = SandSimulator(grid_size=(1000, 1000), angle_of_repose=30, random_seed=0)
 
     # Create a tool (e.g., a bulldozer blade)
-    tool_shape = circle_generator()
+    tool_shape = disk_generator()
     tool = Tool(shape=tool_shape, simulator=simulator)
 
     # Define a trajectory for the tool
-    trajectory = generate_linear_trajectory((100,100), ( 800,300), 50)
+    trajectory = generate_linear_trajectory((100, 100), (800, 800), 10)
 
     # Make the tool follow the trajectory
     tool.follow_trajectory(trajectory)
@@ -152,3 +250,12 @@ if __name__ == "__main__":
     simulator.display_3d_map()
     #simulator.display_2d_map()
 
+def test():
+    tool_shape, mesh = disk_generator(20)
+    box = generate_normal_map(tool_shape, mesh)
+    display_normal_map(tool_shape, box)
+
+# Example usage
+if __name__ == "__main__":
+    #main()
+    test()
