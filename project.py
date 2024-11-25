@@ -5,16 +5,23 @@ import noise
 from mpl_toolkits.mplot3d import Axes3D
 from scipy.ndimage import sobel, gaussian_filter, binary_erosion
 
-DEPTH = 50
+DFT_OBJECT_DEPTH = 50
+DFT_GRID_SIZE = (1000, 1000)
+DFT_ANGLE = 30
+
+IS_3D = True
+
+FIG = plt.figure(figsize=(10, 7))
+AX = None
 
 class SandSimulator:
-    def __init__(self, grid_size=(1000,1000), random_seed=None, angle_of_repose=30):
+    def __init__(self, grid_size=DFT_GRID_SIZE, random_seed=None, angle_of_repose=DFT_ANGLE):
         """
         Initialize the sand simulator with a height map and repose angle.
         :param grid_size: Tuple (rows, cols) for the height map size.
         :param angle_of_repose: The repose angle of the sand (in degrees).
         """
-        self.tool_trajectory = []  # Store the tool's trajectory
+        self.object_trajectory = []  # Store the object's trajectory
         self.grid_size = grid_size
         self.height_map = np.zeros(grid_size)  # Initialize a flat height map
         if random_seed is not None:
@@ -33,7 +40,8 @@ class SandSimulator:
                          )
                     self.height_map[x][y] = int(50*new_value)
         #self.height_map[400,400] = -50000000
-        self.height_map[0,0] = -500
+        #self.height_map[0,0] = -500
+        
 
         
         self.angle_of_repose = np.tan(np.radians(angle_of_repose))  # Convert to maximum slope
@@ -57,61 +65,59 @@ class SandSimulator:
             self.height_map[:-1, :] -= flow_y[:-1, :]
             self.height_map[1:, :] += flow_y[:-1, :]
 
-    def display_3d_map(self):
+    def display_map(self):
         """
-        Render the height map in 3D along with the tool's trajectory.
+        Render the height map in 3D along with the object's trajectory.
         """
-        fig = plt.figure(figsize=(10, 7))
-        ax = fig.add_subplot(111, projection='3d')
+        global AX
+        if IS_3D:
+            AX = FIG.add_subplot(111, projection='3d')
+    
+            # Create a grid of coordinates
+            x = np.arange(self.grid_size[1])
+            y = np.arange(self.grid_size[0])
+            x, y = np.meshgrid(x, y)
+    
+            # Plot the surface
+            tmp = AX.plot_surface(x, y, self.height_map, cmap="terrain", edgecolor='k', alpha=0.8)
+    
+            # Show the colorbar
+            cbar = FIG.colorbar(tmp, ax=AX, shrink=0.5, aspect=10, label='Height')
+    
+            # Plot the object's trajectory
+            if self.object_trajectory:
+                traj = np.array(self.object_trajectory)
+                AX.plot(traj[:, 1], traj[:, 0], traj[:, 2], color="red", marker='o', label="Object Trajectory")
+    
+            AX.set_title("3D Height Map with Object Trajectory")
+            AX.set_xlabel("X")
+            AX.set_ylabel("Y")
+            AX.set_zlabel("Height")
+            plt.legend("")
+        else:
+            AX = FIG.add_subplot(111)
+            
+            im = AX.imshow(self.height_map, cmap="terrain", origin="lower")
+            AX.set_xlim(0, self.grid_size[0])
+            AX.set_ylim(0, self.grid_size[1])
+            cbar = FIG.colorbar(im, ax=AX, label="Height")
+            AX.set_title("Height Map - Simulateur de Sable")
 
-        # Create a grid of coordinates
-        x = np.arange(self.grid_size[1])
-        y = np.arange(self.grid_size[0])
-        x, y = np.meshgrid(x, y)
 
-        # Plot the surface
-        tmp = ax.plot_surface(x, y, self.height_map, cmap="terrain", edgecolor='k', alpha=0.8)
-
-        # Show the colorbar
-        cbar = fig.colorbar(tmp, ax=ax, shrink=0.5, aspect=10)
-        cbar.set_label('Hauteur', fontsize=12)
-
-        # Plot the tool's trajectory
-        if self.tool_trajectory:
-            traj = np.array(self.tool_trajectory)
-            ax.plot(traj[:, 1], traj[:, 0], traj[:, 2], color="red", marker='o', label="Tool Trajectory")
-
-        ax.set_title("Height Map with Tool Trajectory")
-        ax.set_xlabel("X")
-        ax.set_ylabel("Y")
-        ax.set_zlabel("Height")
-        plt.legend("")
-        plt.show()
-
-    def display_height_map(self):
+class Object:
+    def __init__(self, mask, simulator):
         """
-        Affiche la height-map actuelle.
-        """
-        plt.imshow(self.height_map, cmap="terrain", origin="upper")
-        plt.colorbar(label="Hauteur")
-        plt.title("Height Map - Simulateur de Sable")
-        plt.show()
-
-
-class Tool:
-    def __init__(self, shape, simulator):
-        """
-        Initialize a tool to interact with the height map.
-        :param shape: A matrix representing the tool's shape.
+        Initialize a object to interact with the height map.
+        :param mask: A matrix representing the object's mask.
         :param simulator: Instance of SandSimulator to modify the height map.
         """
-        self.shape = shape
+        self.mask = mask
         self.simulator = simulator
-        self.position = (0, 0)  # Initial tool position
+        self.position = (0, 0)  # Initial object position
 
     def move(self, new_position):
         """
-        Move the tool to a new position.
+        Move the object to a new position.
         :param new_position: Tuple (x, y) representing the new position.
         """
         self.position = new_position
@@ -119,32 +125,43 @@ class Tool:
 
     def interact_with_sand(self):
         """
-        Apply the tool's interaction to the height map.
+        Apply the object's interaction to the height map.
         """
         x, y = self.position
-        rows, cols = self.shape.shape
+        rows, cols = self.mask.shape
         grid = self.simulator.height_map
         
-        # Ensure the tool stays within the grid bounds
+        # Ensure the object stays within the grid bounds
         x_end = min(x + rows, grid.shape[0])
         y_end = min(y + cols, grid.shape[1])
         
-        #grid[x:x_end, y:y_end] -= 0.1*self.shape[:x_end - x, :y_end - y]
         chunk = grid[x:x_end, y:y_end]
-        chunk_upped = chunk + DEPTH
-        collision_zone = chunk_upped*self.shape
+        chunk_upped = chunk + DFT_OBJECT_DEPTH
+        collision_zone = chunk_upped*self.mask
         soil_amount = np.sum(collision_zone) 
         if soil_amount < 0: # Let's flat the zone with the mean
-            grid[x:x_end, y:y_end][self.shape == 1] = np.mean(grid[x:x_end,y:y_end][self.shape == 1])
+            grid[x:x_end, y:y_end][self.mask == True] = np.mean(grid[x:x_end,y:y_end][self.mask == True])
         else: # 
-            grid[x:x_end, y:y_end][self.shape == 1] = -DEPTH
+            grid[x:x_end, y:y_end][self.mask == True] = -DFT_OBJECT_DEPTH
             #grid[0,0] += soil_amount #TODO NEW HEAP AROUND
 
+    def display_mask_and_normals(self,box):
+        x=self.position[0]
+        y=self.position[1]
+        w=self.mask.shape[0]
+        h=self.mask.shape[1]
+        im = AX.imshow(self.mask, origin="lower", cmap='coolwarm', extent=(x,x+w,y,y+h), alpha=(self.mask == False).astype(float))
 
+        # Show sampled results for better visibility
+        mask1 = np.random.randint(0, 10, size=len(box[0])) == 0
+        if IS_3D:
+            qc = AX.quiver((box[0]+x+w/2)[mask1], (box[1]+y+h/2)[mask1], np.zeros_like(box[0])[mask1],box[2][mask1], box[3][mask1], np.zeros_like(box[2])[mask1], color='blue')
+        else:
+            qc = AX.quiver((box[0]+x+w/2)[mask1], (box[1]+y+h/2)[mask1], box[2][mask1], box[3][mask1], color='blue')
 
     def follow_trajectory(self, trajectory):
         """
-        Make the tool follow a trajectory.
+        Make the object follow a trajectory.
         :param trajectory: List of tuples (x, y) representing successive positions.
         """
         for position in trajectory:
@@ -153,51 +170,39 @@ class Tool:
 
 
 
-def generate_normal_map(shape, mesh):
+def generate_normal_map(obj_mask, mesh):
     X=mesh[0]
     Y=mesh[1]
     # create contours 
-    shape = shape.astype(int)
-    eroded_shape = binary_erosion(shape)
-    contours = (shape - eroded_shape).astype(bool)
+    mask = obj_mask.astype(int)
+    eroded_mask = binary_erosion(mask)
+    contours = (mask - eroded_mask).astype(bool)
     
-    # Apply a Gaussian filter to smooth the shape
-    smoothed_shape = gaussian_filter(shape.astype(float), sigma=2)
+    # Apply a Gaussian filter to smooth the mask
+    smoothed_mask = gaussian_filter(mask.astype(float), sigma=2)
 
-    # Compute the gradient of the smoothed shape
-    gradient_y_shape, gradient_x_shape = np.gradient(smoothed_shape)
+    # Compute the gradient of the smoothed mask
+    gradient_y_mask, gradient_x_mask = np.gradient(smoothed_mask)
 
     # Normalize to obtain unit vectors
-    length_shape = np.sqrt(gradient_x_shape**2 + gradient_y_shape**2)
-    length_shape[length_shape == 0] = 1  # Avoid division by zero
-    normal_x_shape = -gradient_x_shape / length_shape  # Inversion for outward direction
-    normal_y_shape = -gradient_y_shape / length_shape  # Inversion for outward direction
+    length_gradient = np.sqrt(gradient_x_mask**2 + gradient_y_mask**2)
+    length_gradient[length_gradient == 0] = 1  # Avoid division by zero
+    normal_x_mask = -gradient_x_mask / length_gradient  # Inversion for outward direction
+    normal_y_mask = -gradient_y_mask / length_gradient  # Inversion for outward direction
 
     # Extract normal vectors only at detected contours
-    normal_x_shape_contours = normal_x_shape[contours]
-    normal_y_shape_contours = normal_y_shape[contours]
+    normal_x_mask_contours = normal_x_mask[contours]
+    normal_y_mask_contours = normal_y_mask[contours]
     X_contours = X[contours]
     Y_contours = Y[contours]
 
     return (X_contours,
             Y_contours,
-            normal_x_shape_contours,
-            normal_y_shape_contours)
-
-def display_normal_map(shape, box):
-    size=shape.shape[0]
-    # Visualize the patatoid and contour normal vectors
-    plt.figure(figsize=(10, 10))
-    plt.imshow(shape, cmap='gray', origin='lower', extent=[-size / 2, size / 2, -size / 2, size / 2])
-    plt.quiver(box[0], box[1], box[2], box[3], color='blue', scale=20)
-    plt.title("Patatoid with normal vectors at contours")
-    plt.xlabel("X")
-    plt.ylabel("Y")
-    plt.axis("equal")
-    plt.show()
+            normal_x_mask_contours,
+            normal_y_mask_contours)
 
 def disk_generator(radius=100):
-    #TODO rename  parotut tool et shape
+    #TODO rename  parotut object et mask
     size = radius*2
 
     x = np.linspace(-size / 2, size / 2, size)
@@ -207,8 +212,8 @@ def disk_generator(radius=100):
     disk = ((X**2 + Y**2) <= radius**2).astype(int)
     return disk, (X,Y)
 
-def patatoide_generator(size=50):
-    scale_factor = 0.25  # Shape size
+def patatoide_generator(size=100):
+    scale_factor = 0.5  # Shape size
     x = np.linspace(-size / 2, size / 2, size)
     y = np.linspace(-size / 2, size / 2, size)
     X, Y = np.meshgrid(x, y)
@@ -234,28 +239,30 @@ def generate_linear_trajectory(start_point, end_point, N):
 
 def main():
     # Initialize the simulator
-    simulator = SandSimulator(grid_size=(1000, 1000), angle_of_repose=30, random_seed=0)
+    simulator = SandSimulator(random_seed=42)
 
-    # Create a tool (e.g., a bulldozer blade)
-    tool_shape = disk_generator()
-    tool = Tool(shape=tool_shape, simulator=simulator)
+    # Create a object (e.g., a bulldozer blade)
+    object_mask, mesh = disk_generator()
+    object_mask, mesh = patatoide_generator()
+    obj = Object(mask=object_mask, simulator=simulator)
 
-    # Define a trajectory for the tool
-    trajectory = generate_linear_trajectory((100, 100), (800, 800), 10)
+    # Define a trajectory for the object
+    trajectory = generate_linear_trajectory((100, 100), (800, 800), 100)
 
-    # Make the tool follow the trajectory
-    tool.follow_trajectory(trajectory)
+    # Make the object follow the trajectory
+    obj.follow_trajectory(trajectory)
 
     # Display the final height map in 3D
-    simulator.display_3d_map()
-    #simulator.display_2d_map()
+    simulator.display_map()
+    
+    box = generate_normal_map(object_mask, mesh)
+    obj.display_mask_and_normals(box)
+    plt.show()
 
 def test():
-    tool_shape, mesh = disk_generator(20)
-    box = generate_normal_map(tool_shape, mesh)
-    display_normal_map(tool_shape, box)
+    object_mask, mesh = disk_generator(20)
 
 # Example usage
 if __name__ == "__main__":
-    #main()
-    test()
+    main()
+    #test()
