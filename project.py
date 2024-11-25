@@ -9,7 +9,7 @@ DFT_OBJECT_DEPTH = 50
 DFT_GRID_SIZE = (1000, 1000)
 DFT_ANGLE = 30
 
-IS_3D = True
+IS_3D = False
 
 FIG = plt.figure(figsize=(10, 7))
 AX = None
@@ -201,30 +201,15 @@ def generate_normal_map(obj_mask, mesh):
             normal_x_mask_contours,
             normal_y_mask_contours)
 
-def disk_generator(radius=100):
-    #TODO rename  parotut object et mask
-    size = radius*2
+def ellipse_generator(a=10, b=65):
+    size = max(a,b)*2
 
     x = np.linspace(-size / 2, size / 2, size)
     y = np.linspace(-size / 2, size / 2, size)
     X, Y = np.meshgrid(x, y)
 
-    disk = ((X**2 + Y**2) <= radius**2).astype(int)
-    return disk, (X,Y)
-
-def patatoide_generator(size=100):
-    scale_factor = 0.5  # Shape size
-    x = np.linspace(-size / 2, size / 2, size)
-    y = np.linspace(-size / 2, size / 2, size)
-    X, Y = np.meshgrid(x, y)
-
-    # Create the patatoid
-    patatoid = ((X**2) / (900 * scale_factor) + 
-                (Y**2) / (1600 * scale_factor) +
-                0.05 * np.sin(5 * X) * np.cos(5 * Y)) <= 1
-
-    return patatoid, (X,Y)
-
+    ellipse = ((X**2 / a**2 + Y**2 / b**2) <= 1).astype(int)
+    return ellipse, (X,Y)
 
 def generate_linear_trajectory(start_point, end_point, N):
     start_point = np.array(start_point)
@@ -242,12 +227,11 @@ def main():
     simulator = SandSimulator(random_seed=42)
 
     # Create a object (e.g., a bulldozer blade)
-    object_mask, mesh = disk_generator()
-    object_mask, mesh = patatoide_generator()
+    object_mask, mesh = ellipse_generator()
     obj = Object(mask=object_mask, simulator=simulator)
 
     # Define a trajectory for the object
-    trajectory = generate_linear_trajectory((100, 100), (800, 800), 100)
+    trajectory = generate_linear_trajectory((100, 100), (800, 800), 1)
 
     # Make the object follow the trajectory
     obj.follow_trajectory(trajectory)
@@ -260,7 +244,7 @@ def main():
     plt.show()
 
 def test():
-    object_mask, mesh = disk_generator(20)
+    object_mask, mesh = ellipse_generator(20)
 
 # Example usage
 if __name__ == "__main__":
