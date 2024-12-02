@@ -2,24 +2,34 @@ import random
 import numpy as np
 import matplotlib.pyplot as plt
 import noise
+import time
 from mpl_toolkits.mplot3d import Axes3D
-from scipy.ndimage import sobel, gaussian_filter, binary_erosion
+from scipy.ndimage import gaussian_filter, binary_erosion
 
-DFT_OBJECT_DEPTH = 50
-DFT_GRID_SIZE = (500, 1000) # (Ymax, Xmax)
-DFT_ANGLE = 30
+DFT_OBJECT_DEPTH = 30
+DFT_GRID_SIZE = (200, 200) # (Ymax, Xmax)
+
+ANGLE_OF_RESPOSE = 30
+DX = 5 #mm
+K = DX / (16)
 
 IS_3D = True
-
 FIG = plt.figure(figsize=(10, 7))
 AX = None
 
+
+np.set_printoptions(precision=3)
+np.set_printoptions(linewidth=200, threshold=np.inf)
+
+
+
+
 class SandSimulator:
-    def __init__(self, grid_size=DFT_GRID_SIZE, random_seed=None, angle_of_repose=DFT_ANGLE):
+    def __init__(self, grid_size=DFT_GRID_SIZE, random_seed=None):
         """
         Initialize the sand simulator with a height map and repose angle.
         :param grid_size: Tuple (rows, cols) for the height map size.
-        :param angle_of_repose: The repose angle of the sand (in degrees).
+        :param random_seed: Integer for the random seed (if None, the soil will be flat)
         """
         self.object_trajectory = []  # Store the object's trajectory
         self.grid_size = grid_size
@@ -38,31 +48,69 @@ class SandSimulator:
                           base=random_seed
                          )
                     self.height_map[y][x] = int(50*new_value)
-        #self.height_map[400,400] = -50000000
-        #self.height_map[0,0] = -500
         
 
         
-        self.angle_of_repose = np.tan(np.radians(angle_of_repose))  # Convert to maximum slope
+        self.maximum_slope = np.tan(np.radians(ANGLE_OF_RESPOSE))  # Convert to maximum slope
 
-    def simulate_erosion(self, iterations=50):
+    def compute_one_erosion_step(self):
         """
-        Simulate sand erosion until reaching an equilibrium state.
-        :param iterations: Number of iterations for the erosion process.
+        Simulates one erosion step on the height map and calculates q (flux).
         """
-        for _ in range(iterations):
-            slopes_x = np.diff(self.height_map, axis=1, prepend=0)
-            slopes_y = np.diff(self.height_map, axis=0, prepend=0)
+        global DX, K
 
-            # Calculate sand flow based on slope and repose angle
-            flow_x = np.where(slopes_x > self.angle_of_repose, slopes_x - self.angle_of_repose, 0)
-            flow_y = np.where(slopes_y > self.angle_of_repose, slopes_y - self.angle_of_repose, 0)
+        # Define the 8-neighbor coordinates
+        neighbors = [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (1, 1), (-1, 1), (1, -1)]
 
-            # Distribute the flow across the height map
-            self.height_map[:, :-1] -= flow_x[:, :-1]
-            self.height_map[:, 1:] += flow_x[:, :-1]
-            self.height_map[:-1, :] -= flow_y[:-1, :]
-            self.height_map[1:, :] += flow_y[:-1, :]
+        # Initialize the q array to store the flux between grid points
+        q = np.zeros_like(self.height_map)
+
+        # Get the dimensions of the height map
+        rows, cols = self.height_map.shape
+
+        # Iterate through each cell of the height map
+        for i in range(1, rows - 1):
+            for j in range(1, cols - 1):
+                
+                mask_coord = tuple([i-self.obj.position[0], j-self.obj.position[1]])
+                if 0 <= mask_coord[0] < self.obj.mask.shape[0] and \
+                    0 <= mask_coord[1] < self.obj.mask.shape[1] and \
+                    self.obj.mask[mask_coord]:
+                    continue
+
+                for di, dj in neighbors:
+                    ni, nj = i + di, j + dj
+                    
+                    mask_coord = tuple([ni-self.obj.position[0], nj-self.obj.position[1]])
+                    if 0 <= mask_coord[0] < self.obj.mask.shape[0] and \
+                        0 <= mask_coord[1] < self.obj.mask.shape[1] and \
+                        self.obj.mask[mask_coord]:
+                        continue
+
+                    # Compute the slope between the current cell and the neighbor
+                    slope = (self.height_map[ni, nj] - self.height_map[i, j]) / DX
+
+                    # Calculate the flux based on the slope and update q
+                    if slope < -self.maximum_slope:
+                        flux = K  * (slope + self.maximum_slope)
+                        q[ni, nj] -= flux
+                        q[i, j] += flux
+                    elif slope > self.maximum_slope:
+                        flux = K  * (slope - self.maximum_slope)
+                        q[ni, nj] -= flux
+                        q[i, j] += flux
+        self.height_map += q 
+        return q
+    
+    def simulate_erosion(self):
+        q = self.compute_one_erosion_step()
+        nb_iteration = 1
+        print("Erosion en cours...")
+        while np.sum(np.abs(q)) > 10:
+            q = self.compute_one_erosion_step()
+            nb_iteration+=1
+            print("X",end="", flush=True)
+        print("\nNombre d'iterations d'érosion: ", nb_iteration)
 
     def display_map(self):
         """
@@ -119,6 +167,7 @@ class Object:
         # shape is odd, so // will give real center coordonates.
         self.mask_center = ((mask.shape[0]-1) / 2, (mask.shape[1]-1) / 2) # (Y,X)
         self.simulator = simulator
+        self.simulator.obj = self
         self.position = (0, 0)  # (Y,X)
 
     def interact_with_sand(self, heap_pos):
@@ -141,8 +190,8 @@ class Object:
             grid[y:y_end, x:x_end][self.mask == True] = np.mean(grid[y:y_end,x:x_end][self.mask == True])
         else: # 
             grid[y:y_end, x:x_end][self.mask == True] = -DFT_OBJECT_DEPTH
-            print(heap_pos)
-            #grid[heap_pos] += soil_amount
+            print(f"Position du tas : {heap_pos}, quantité : {soil_amount}")
+            grid[heap_pos] += soil_amount
 
     def display_mask(self):
         y=self.position[0]
@@ -175,7 +224,7 @@ class Object:
         direc = self.position - prev_pos
         direc_normed = direc / min(direc)
         tmp = np.array(self.mask_center)
-        while tmp[0]<=self.mask.shape[0] and tmp[1]<=self.mask.shape[1] and self.mask[tuple(tmp.astype(int))]:
+        while tmp[0]<self.mask.shape[0] and tmp[1]<self.mask.shape[1] and self.mask[tuple(tmp.astype(int))]:
             tmp += direc_normed
         return self.global_coord(tmp.astype(int))
 
@@ -194,7 +243,7 @@ class Object:
             self.simulator.object_trajectory.append(self.global_coord(self.mask_center))
             heap_pos = self.define_new_heap_pushed_position(prev_pos)
             self.interact_with_sand(heap_pos)
-            #self.simulator.simulate_erosion(iterations=10)  # Simulate erosion after each move
+            self.simulator.simulate_erosion()
 
 
 
@@ -228,7 +277,7 @@ def generate_normal_map(obj_mask, mesh):
             normal_y_mask_contours,
             normal_x_mask_contours)
 
-def ellipse_generator(a=35, b=65):
+def ellipse_generator(a=35, b=25):
     size = max(a,b)*2 
     # size is even, so divisible by 2.
     # size + 1 is odd, so the center have integers coordonates.
@@ -256,26 +305,44 @@ def main():
     simulator = SandSimulator(random_seed=42)
 
     # Create a object (e.g., a bulldozer blade)
-    object_mask, mesh = ellipse_generator()
+    object_mask, mesh = ellipse_generator(10,15)
     obj = Object(mask=object_mask, simulator=simulator)
 
     # Define a trajectory for the object
-    trajectory = generate_linear_trajectory((100, 100), (203, 400), 4)
-
+    traj1 = generate_linear_trajectory((50, 50), (150, 150), 8)
+    traj2 = generate_linear_trajectory((50, 150), (150, 50), 8)
+    traj = np.concatenate((traj1,traj2))
+    print(traj)
     # Make the object follow the trajectory
-    obj.follow_trajectory(trajectory)
+    obj.follow_trajectory(traj)
 
     # Display the final height map in 3D
     simulator.display_map()
-    normal_map = generate_normal_map(object_mask, mesh)
+    #normal_map = generate_normal_map(object_mask, mesh)
     obj.display_mask()
-    obj.display_normals(normal_map)
-    plt.show()
+    #obj.display_normals(normal_map)
 
 def test():
-    object_mask, mesh = ellipse_generator(20)
+    simulator = SandSimulator()
+    simulator.height_map[10,10] = 1000
+    object_mask, mesh = ellipse_generator(3,3)
+    obj = Object(mask=object_mask, simulator=simulator)
+    
+    simulator.simulate_erosion()
+
+    simulator.display_map()
+    obj.display_mask()
+
+
 
 # Example usage
 if __name__ == "__main__":
+    start = time.time()
+
     main()
     #test()
+
+    end = time.time()
+    print(f"Temps d'exécution : {end-start:.3f} secondes")
+    plt.show()
+
