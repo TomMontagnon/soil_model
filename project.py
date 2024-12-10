@@ -1,64 +1,69 @@
 import numpy as np
 import time
 from datetime import datetime
-
+import tqdm
 from utils import *
 from config import PARAMS
 from sand_simulator import SandSimulator
-from vehicule import Object
-
-#TODO faire 2 affichages sur jupyter
-#   - 1 compliqué qui fait un petit film (cf chatgpt)
-#TODO mettre self.position par defaut à None et réparer
-#TODO tout rename par vehicule
-
-
+from vehicule import Vehicule
 
 IS_REGISTERED = True
 np.set_printoptions(precision=3)
 np.set_printoptions(linewidth=200, threshold=np.inf)
 
 HM_STATES = list()
-TRAJ_STATES = list()
-OBJ_MASK = None
+VHL_MASK = None  
 NAME = None
 
+#TODO better display of tqdm, fix unit/s
+
 def main():
-    global HM_STATES, OBJ_MASK, NAME
+    """
+    Main function to initialize the sand simulator and simulate vehicule movement
+    along a defined trajectory.
+    """
+    global HM_STATES, VHL_MASK, NAME
     NAME = "traj X"
 
     # Initialize the simulator
     simulator = SandSimulator()
-    HM_STATES.append((simulator.height_map.copy(), np.array(simulator.object_trajectory)))
+    HM_STATES.append((simulator.height_map.copy(), np.array(simulator.vehicule_trajectory)))
 
-    # Create a object (e.g., a bulldozer blade)
-    OBJ_MASK= ellipse_generator(30 // PARAMS["cell_edge_length"] ,50 //PARAMS["cell_edge_length"])
-    obj = Object(mask=OBJ_MASK, simulator=simulator)
+    # Create a vehicule (e.g., a bulldozer blade)
+    VHL_MASK = ellipse_generator(30 // PARAMS["cell_edge_length"], 50 // PARAMS["cell_edge_length"])
+    vhl = Vehicule(mask=VHL_MASK, simulator=simulator)
 
-    # Define a trajectory for the object
-    traj1 = generate_linear_trajectory((100, 100), (900, 900), 3) // PARAMS["cell_edge_length"]- np.array(obj.mask_center)
-    traj2 = generate_linear_trajectory((100, 900), (900, 100), 1) // PARAMS["cell_edge_length"]- np.array(obj.mask_center)
-    traj = np.concatenate((traj1,traj2))
-    print(traj)
-    # Make the object follow the trajectory
-    obj.follow_trajectory(traj)
-    HM_STATES.append((simulator.height_map.copy(), np.array(simulator.object_trajectory)))
+    # Define a trajectory for the vehicule
+    traj_comp = list()
+    #traj_comp.append(generate_linear_trajectory((100, 900), (900, 100), 1))
+    traj_comp.append(generate_sinusoidal_trajectory((100,100), (700,700), 2, 100, 25))
+    traj = np.concatenate(traj_comp) // PARAMS["cell_edge_length"] - np.array(vhl.mask_center)
+
+    # Make the vehicule follow the trajectory
+    vhl.follow_trajectory(traj)
+    HM_STATES.append((simulator.height_map.copy(), np.array(simulator.vehicule_trajectory)))
 
 def test():
-    global HM_STATES, OBJ_MASK, NAME
+    """
+    Test function to initialize the sand simulator and simulate basic vehicule
+    interactions with the height map.
+    """
+    global HM_STATES, VHL_MASK, NAME
 
     NAME = "test"
 
-    simulator = SandSimulator(grid_size = (20,20))
-    simulator.height_map[10,10] = 1000
-    HM_STATES.append((simulator.height_map.copy(), np.array(simulator.object_trajectory)))
-    
-    OBJ_MASK = ellipse_generator(4,4)
-    obj = Object(mask=OBJ_MASK, simulator=simulator)
-    
-    simulator.simulate_erosion()
-    HM_STATES.append((simulator.height_map.copy(), np.array(simulator.object_trajectory)))
+    # Initialize a small sand simulator grid
+    simulator = SandSimulator()
+    simulator.height_map[10, 10] = 1000  # Modify height map for testing
+    HM_STATES.append((simulator.height_map.copy(), np.array(simulator.vehicule_trajectory)))
 
+    # Create a simple vehicule mask
+    VHL_MASK = ellipse_generator(10, 10)
+    vhl = Vehicule(mask=VHL_MASK, simulator=simulator)
+
+    # Simulate erosion
+    simulator.simulate_erosion()
+    HM_STATES.append((simulator.height_map.copy(), np.array(simulator.vehicule_trajectory)))
 
 # Example usage
 if __name__ == "__main__":
@@ -67,13 +72,13 @@ if __name__ == "__main__":
     main()
     #test()
 
-    time = time.time() - start
-    print(f"Temps d'exécution : {time:.3f} secondes")
-    filename = f"{NAME} {datetime.now().strftime("%Y-%m-%d %H:%M")} ({time:.3f}s)"
-    if IS_REGISTERED:
-        np.savez_compressed("data/"+filename,
-                        hm_states=np.array(HM_STATES, dtype=object),
-                        obj_mask=OBJ_MASK,
-                        time=time,
-                        param=PARAMS)
+    elapsed_time = time.time() - start
+    print(f"Execution time: {elapsed_time:.3f} seconds")
+    filename = f"{NAME} {datetime.now().strftime('%Y-%m-%d %H:%M')} ({elapsed_time:.3f}s)"
 
+    if IS_REGISTERED:
+        np.savez_compressed("data/" + filename,
+                            hm_states=np.array(HM_STATES, dtype=object),
+                            vhl_mask=VHL_MASK,
+                            time=elapsed_time,
+                            param=PARAMS)
