@@ -3,11 +3,10 @@ import time
 from datetime import datetime
 import tqdm
 from utils import *
-from config import PARAMS
+from config import *
 from sand_simulator import SandSimulator
 from vehicule import Vehicule
 
-IS_REGISTERED = True
 np.set_printoptions(precision=3)
 np.set_printoptions(linewidth=200, threshold=np.inf)
 
@@ -17,68 +16,75 @@ NAME = None
 
 #TODO better display of tqdm, fix unit/s
 
-def main():
+def run():
     """
     Main function to initialize the sand simulator and simulate vehicule movement
     along a defined trajectory.
     """
     global HM_STATES, VHL_MASK, NAME
-    NAME = "traj X"
+    NAME = "traj crossed"
 
     # Initialize the simulator
-    simulator = SandSimulator()
+    simulator = SandSimulator(grid_size=PARAMS["grid_size"])
     HM_STATES.append((simulator.height_map.copy(), np.array(simulator.vehicule_trajectory)))
 
     # Create a vehicule (e.g., a bulldozer blade)
     VHL_MASK = ellipse_generator(30 // PARAMS["cell_edge_length"], 50 // PARAMS["cell_edge_length"])
+    print(VHL_MASK.shape, VHL_MASK)
     vhl = Vehicule(mask=VHL_MASK, simulator=simulator)
 
     # Define a trajectory for the vehicule
     traj_comp = list()
-    #traj_comp.append(generate_linear_trajectory((100, 900), (900, 100), 1))
-    traj_comp.append(generate_sinusoidal_trajectory((100,100), (700,700), 2, 100, 25))
-    traj = np.concatenate(traj_comp) // PARAMS["cell_edge_length"] - np.array(vhl.mask_center)
-
+    traj_comp.append(generate_linear_trajectory((100, 100), (800, 800), 20))
+    traj_comp.append(generate_linear_trajectory((800, 100), (100, 800), 20))
+    #traj_comp.append(generate_sinusoidal_trajectory((100,100), (700,700), 2, 100, 25))
+    traj = np.concatenate(traj_comp) // PARAMS["cell_edge_length"] 
     # Make the vehicule follow the trajectory
     vhl.follow_trajectory(traj)
-    HM_STATES.append((simulator.height_map.copy(), np.array(simulator.vehicule_trajectory)))
 
-def test():
-    """
-    Test function to initialize the sand simulator and simulate basic vehicule
-    interactions with the height map.
-    """
-    global HM_STATES, VHL_MASK, NAME
-
-    NAME = "test"
-
-    # Initialize a small sand simulator grid
-    simulator = SandSimulator()
-    simulator.height_map[10, 10] = 1000  # Modify height map for testing
-    HM_STATES.append((simulator.height_map.copy(), np.array(simulator.vehicule_trajectory)))
-
-    # Create a simple vehicule mask
-    VHL_MASK = ellipse_generator(10, 10)
-    vhl = Vehicule(mask=VHL_MASK, simulator=simulator)
-
-    # Simulate erosion
+    #Last clean HM_state
+    vhl.position = None 
     simulator.simulate_erosion()
     HM_STATES.append((simulator.height_map.copy(), np.array(simulator.vehicule_trajectory)))
 
-# Example usage
-if __name__ == "__main__":
+def speed_measure():
+
+    pool = dict()
+    cell_len_values = [100,50,40,25,20,10,8,5,4,2,1]
+
+    for i in cell_len_values:
+        PARAMS["cell_edge_length"] = i
+        conf_update()
+        start = time.time()
+        run()
+        elapsed_time = time.time() - start
+
+        pool[i]= f"{elapsed_time:.3f}"
+        print(pool)
+
+    np.savez("data/speedups/notspeeded cell_len_values.npy",pool=pool, param=PARAMS,allow_pickle=True)
+
+
+
+def register_run():
     start = time.time()
 
-    main()
-    #test()
+    run()
 
     elapsed_time = time.time() - start
+
     print(f"Execution time: {elapsed_time:.3f} seconds")
     filename = f"{NAME} {datetime.now().strftime('%Y-%m-%d %H:%M')} ({elapsed_time:.3f}s)"
 
-    if IS_REGISTERED:
-        np.savez_compressed("data/" + filename,
-                            hm_states=np.array(HM_STATES, dtype=object),
-                            vhl_mask=VHL_MASK,
-                            time=elapsed_time,
-                            param=PARAMS)
+    np.savez_compressed("data/runs/" + filename,
+                        hm_states=np.array(HM_STATES, dtype=object),
+                        vhl_mask=VHL_MASK,
+                        time=elapsed_time,
+                        param=PARAMS)
+
+
+
+# Example usage
+if __name__ == "__main__":
+    register_run()
+    #speed_measure()

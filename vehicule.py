@@ -1,5 +1,5 @@
 from utils import *
-from config import PARAMS
+from config import *
 import numpy as np
 import tqdm
 
@@ -12,10 +12,11 @@ class Vehicule:
         :param simulator: Instance of SandSimulator to modify the height map.
         """
         self.mask = mask
-        self.normal_map = generate_normal_map(mask)
+        #self.normal_map = generate_normal_map(mask)
 
         # Calculate the center of the vehicule's mask (Y, X coordinates)
-        self.mask_center = ((mask.shape[0] - 1) // 2, (mask.shape[1] - 1) // 2)  # (Y, X)
+        # The size is necessarily odd, so the center is always well-positioned.
+        self.mask_center = np.array([(mask.shape[0] - 1) // 2, (mask.shape[1] - 1) // 2])  # (Y, X)
         self.simulator = simulator
         self.simulator.vhl = self
         self.position = None
@@ -24,6 +25,8 @@ class Vehicule:
         """
         Apply the vehicule's interaction to the height map.
         :param heap_pos: Position where the soil will be accumulated.
+
+        ATTENTION : tmp = var[mask] affectation will copy the data.
         """
         y, x = self.position
         h, w = self.mask.shape
@@ -33,22 +36,19 @@ class Vehicule:
         y_end = min(y + h, grid.shape[0])
         x_end = min(x + w, grid.shape[1])
 
-        y_mask_end = min(grid.shape[0] - y, h)
-        x_mask_end = min(grid.shape[1] - x, w)
-        mask = self.mask[:y_mask_end, :x_mask_end]
+        y_end_mask = min(grid.shape[0] - y, h)
+        x_end_mask = min(grid.shape[1] - x, w)
+        mask = self.mask[:y_end_mask, :x_end_mask]
 
         # Interaction with the height map
         chunk = grid[y:y_end, x:x_end]
-        chunk_upped = chunk + PARAMS["vehicule_depth"]
-        collision_zone = chunk_upped * mask
-        soil_amount = np.sum(collision_zone)
+        chunk_saved = chunk[mask].copy()
 
-        if soil_amount < 0:  # Flatten the zone with the mean
-            grid[y:y_end, x:x_end][mask == True] = np.mean(grid[y:y_end, x:x_end][mask == True])
-        else:  # Push soil into the heap
-            grid[y:y_end, x:x_end][mask == True] = -PARAMS["vehicule_depth"]
-            #print(f"Heap position: {heap_pos}, quantity: {soil_amount:.3f}")
-            grid[heap_pos] += soil_amount
+        chunk[mask] = np.minimum(chunk[mask], - PARAMS["vehicule_depth"])
+
+        soil_amount = np.sum(np.abs(chunk_saved - chunk[mask]))
+        grid[heap_pos] += soil_amount
+    
 
     def define_new_heap_pushed_position(self, prev_pos):
         """
@@ -57,15 +57,22 @@ class Vehicule:
         :param prev_pos: The previous position of the vehicule.
         :return: Coordinates of the new heap position.
         """
+        tmp_heap_pos = self.mask_center.astype(float)
         direc = self.position - prev_pos
+        if np.all(direc==0):
+            return self.global_coord(tmp_heap_pos.astype(int))
         direc_normed = direc / np.linalg.norm(direc)
-        tmp = np.array(self.mask_center).astype(float)
 
         # Move along the direction until outside the mask bounds
-        while 0 <= tmp[0] < self.mask.shape[0] and 0 <= tmp[1] < self.mask.shape[1] and self.mask[tuple(tmp.astype(int))]:
-            tmp += direc_normed
-
-        return self.global_coord(tmp.astype(int))
+        while np.all(0 <= tmp_heap_pos + direc_normed) and \
+              np.all(tmp_heap_pos + direc_normed < self.mask.shape) and \
+              self.mask[tuple(tmp_heap_pos.astype(int))]:
+            print(tmp_heap_pos)
+            tmp_heap_pos += direc_normed
+        
+        heap_pos = (tmp_heap_pos - self.mask_center).astype(int)
+        print(heap_pos)
+        return self.global_coord(heap_pos)
 
     def global_coord(self, local_coords):
         """
@@ -73,18 +80,18 @@ class Vehicule:
         :param local_coords: Tuple of local (y, x) coordinates within the mask.
         :return: Tuple of global (y, x) coordinates in the grid.
         """
-        return self.position[0] + local_coords[0], self.position[1] + local_coords[1]
+        return np.array([self.position[0] + local_coords[0], self.position[1] + local_coords[1]])
 
     def follow_trajectory(self, trajectory):
         """
         Make the vehicule follow a trajectory.
         :param trajectory: List of tuples (x, y) representing successive positions.
         """
-        leng = trajectory.shape[0]
         self.position = trajectory[0]
         self.simulator.vehicule_trajectory.append(self.global_coord(self.mask_center))
 
-        for prev_pos, pos in tqdm.tqdm(zip(trajectory, trajectory[1:]), desc=f"Trajectory (Total: {leng})", unit=" checkpoints", dynamic_ncols=False,position=0):
+        for prev_pos, pos in tqdm.tqdm(zip(trajectory, trajectory[1:]), desc=f"Trajectory (Total: {trajectory.shape[0]})", 
+                                       unit=" checkpoints", dynamic_ncols=False,position=0):
             self.position = pos
             self.simulator.vehicule_trajectory.append(self.global_coord(self.mask_center))
 

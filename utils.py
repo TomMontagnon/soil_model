@@ -39,6 +39,11 @@ def ellipse_generator(a, b):
     :param b: Semi-minor axis length.
     :return: 2D binary array representing the ellipse.
     """
+    if a==0:
+        a=1
+    if b==0:
+        b=1
+
     # Ensure the size is even to center the ellipse on integer coordinates
     size = max(a, b) * 2 + 1
 
