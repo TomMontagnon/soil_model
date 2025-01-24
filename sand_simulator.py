@@ -29,7 +29,6 @@ class SandSimulator:
         """
         Runs the erosion simulation until the flux is below a defined threshold.
         """
-        print(PARAMS["cell_edge_length"])
         with tqdm.tqdm(desc="Eroding", unit=" erosions", position=1,leave=False, dynamic_ncols=False) as pbar:
             # Perform the first erosion step
             q = compute_one_erosion_step(np.float64(PARAMS["k"]), self.height_map, 
@@ -49,7 +48,6 @@ class SandSimulator:
 
 @jit(nopython=True, parallel=True)
 def compute_one_erosion_step(K, height_map, maximum_slope, vhl_pos, vhl_mask):
-    print(K, maximum_slope, vhl_pos, vhl_mask.shape)
     """
     Simulates a single erosion step on the height map and calculates the flux (q) between cells.
     """
