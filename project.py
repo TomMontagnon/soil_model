@@ -30,7 +30,6 @@ def run():
 
     # Create a vehicule (e.g., a bulldozer blade)
     VHL_MASK = ellipse_generator(30 // PARAMS["cell_edge_length"], 50 // PARAMS["cell_edge_length"])
-    print(VHL_MASK.shape, VHL_MASK)
     vhl = Vehicule(mask=VHL_MASK, simulator=simulator)
 
     # Define a trajectory for the vehicule

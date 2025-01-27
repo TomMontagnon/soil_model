@@ -54,8 +54,6 @@ class Vehicule:
         grid[heap_pos] += soil_amount
 
 
-
-    #ANCIENNE => OK
     def define_new_heap_pushed_position(self, prev_pos):
         """
         Determine the position for the new heap of pushed soil.
@@ -63,25 +61,7 @@ class Vehicule:
         :param prev_pos: The previous position of the vehicule.
         :return: Coordinates of the new heap position.
         """
-        direc = self.position - prev_pos
-        direc_normed = direc / np.linalg.norm(direc)
-        tmp = np.array(self.mask_center).astype(float)
-
-        # Move along the direction until outside the mask bounds
-        while 0 <= tmp[0] < self.mask.shape[0] and 0 <= tmp[1] < self.mask.shape[1] and self.mask[tuple(tmp.astype(int))]:
-            tmp += direc_normed
-
-        return self.global_coord(tmp.astype(int))
-
-    #NOUVELLE => CASSED
-    def define_new_heap_pushed_position(self, prev_pos):
-        """
-        Determine the position for the new heap of pushed soil.
-        Requires a convex mask.
-        :param prev_pos: The previous position of the vehicule.
-        :return: Coordinates of the new heap position.
-        """
-        tmp_heap_pos = self.mask_center.astype(float)
+        tmp_heap_pos = np.array(self.mask_center).astype(float)
         direc = self.position - prev_pos
         if np.all(direc==0):
             return self.global_coord(tmp_heap_pos.astype(int))
@@ -93,10 +73,9 @@ class Vehicule:
               self.mask[tuple(tmp_heap_pos.astype(int))]:
             tmp_heap_pos += direc_normed
         
-        heap_pos = (tmp_heap_pos - self.mask_center).astype(int)
-        print(heap_pos)
-
-
+        heap_pos = self.global_coord((tmp_heap_pos - self.mask_center).astype(int))
+        return heap_pos
+    
 
     def global_coord(self, local_coords):
         """
