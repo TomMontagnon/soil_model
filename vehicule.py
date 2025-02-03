@@ -1,28 +1,25 @@
 from utils import *
-from config import PARAMS
+from config import *
 import numpy as np
 import tqdm
 
 
 class Vehicule:
     def __init__(self, mask, simulator):
+        global VHL_MASK
         """
         Initialize a vehicule to interact with the height map.
         :param mask: A matrix representing the vehicule's mask.
         :param simulator: Instance of SandSimulator to modify the height map.
         """
-        self.mask = mask
+        self.mask = VHL_MASK = mask
         self.normal_map = generate_normal_map(mask)
 
         # Calculate the center of the vehicule's mask (Y, X coordinates)
         self.mask_center = ((mask.shape[0] - 1) // 2, (mask.shape[1] - 1) // 2)  # (Y, X)
         self.simulator = simulator
         self.simulator.vhl = self
-        self.position = None
-
-
-
-  
+        self.position = None  
 
 
     def interact_with_sand(self, heap_pos):
@@ -51,6 +48,7 @@ class Vehicule:
         chunk[mask] = np.minimum(chunk[mask], - PARAMS["vehicule_depth"])
 
         soil_amount = np.sum(np.abs(chunk_saved - chunk[mask]))
+        print(heap_pos)
         grid[heap_pos] += soil_amount
 
 
@@ -73,7 +71,8 @@ class Vehicule:
               self.mask[tuple(tmp_heap_pos.astype(int))]:
             tmp_heap_pos += direc_normed
         
-        heap_pos = self.global_coord((tmp_heap_pos - self.mask_center).astype(int))
+        heap_pos = self.global_coord(tmp_heap_pos.astype(int))
+        heap_pos = tuple(np.minimum(heap_pos, np.array(self.simulator.grid_size) -1))
         return heap_pos
     
 
@@ -103,5 +102,5 @@ class Vehicule:
             self.interact_with_sand(heap_pos)
 
             # Simulate erosion after interaction
-            self.simulator.simulate_erosion()
+            self.simulator.simulate_erosion_cuda()
 
