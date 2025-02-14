@@ -59,7 +59,7 @@ class SandSimulator:
                 
                 if register:
                     self.height_map = d_height_map.copy_to_host()
-                    HM_STATES.append((simulator.height_map.copy(), np.array(simulator.vehicule_trajectory)))   
+                    HM_STATES.append((self.height_map.copy(), np.array(self.vehicule_trajectory)))   
 
                 # Reset flux array
                 d_flux.copy_to_device(np.zeros_like(self.height_map, dtype=np.float64))
@@ -78,12 +78,24 @@ class SandSimulator:
                 # Copy flux back to check the stopping condition
                 q = d_flux.copy_to_host()
                 pbar.update(1)
-                #print(self.vhl.mask)
-                #print(PARAMS)
-                #print(np.float64(PARAMS["k"]), self.height_map, np.float64(self.maximum_slope), d_vhl_pos, sep=" == ")
-                #print(q)
         # Ensure the final state of the height map is stored
         self.height_map = d_height_map.copy_to_host()
+
+    def simulate_erosion_jit(self, register=False):
+        """
+        Runs the erosion simulation until the flux is below a defined threshold.
+        """
+        with tqdm.tqdm(desc="Eroding", unit=" erosions", position=1,leave=False, dynamic_ncols=False) as pbar:
+            # Perform the first erosion step
+            q = np.inf 
+            # Continue until the total flux stabilizes below the threshold
+            while np.sum(np.abs(q)) > PARAMS["erosion_threshold"]:
+                if register:
+                    HM_STATES.append((self.height_map.copy(), np.array(self.vehicule_trajectory)))   
+                q = compute_one_erosion_step_jit(np.float64(PARAMS["k"]), self.height_map, 
+                                             self.maximum_slope, self.vhl.position, self.vhl.mask)
+                pbar.update(1)
+
 
 
 @cuda.jit
@@ -152,3 +164,56 @@ def apply_flux_to_height_map(K, height_map, flux):
 
     if i < rows and j < cols:
         height_map[i, j] += K * flux[i, j]
+
+
+    
+
+@jit(nopython=True, parallel=True)
+def compute_one_erosion_step_jit(K, height_map, maximum_slope, vhl_pos, vhl_mask):
+    """
+    Simulates a single erosion step on the height map and calculates the flux (q) between cells.
+    """
+    def avoid_vhl(i, j):
+        """
+        Checks if the given cell (i, j) is covered by the vehicule's mask.
+        :param i: Row index.
+        :param j: Column index.
+        :return: True if the cell is covered by the vehicule's mask; False otherwise.
+        """
+        if vhl_pos is None:
+            return False
+        mask_y = int(i - vhl_pos[0])
+        mask_x = int(j - vhl_pos[1])
+        if (0 <= mask_y < vhl_mask.shape[0] and  \
+            0 <= mask_x < vhl_mask.shape[1] and  \
+            vhl_mask[mask_y,mask_x]):
+            return True
+        return False 
+
+    q = np.zeros_like(height_map, dtype=np.float64)
+    rows, cols = height_map.shape
+
+    # Iterate through all cells except the borders
+    for i in range(1, rows - 1):
+        for j in range(1, cols - 1):
+           
+            # Skip cells occupied by the vehicule
+            if avoid_vhl(i, j):
+                continue
+
+            for di, dj, dist in NEIGHBORS:
+                ni, nj = int(i + di), int(j + dj)
+
+                # Skip neighbor cells occupied by the vehicule
+                if avoid_vhl(ni, nj):
+                    continue
+                slope = (height_map[ni, nj] - height_map[i, j]) / dist
+                if slope > maximum_slope:
+                    flux = (slope - maximum_slope)
+                    q[ni, nj] -= flux
+                    q[i, j] += flux
+
+    # Update the height map with the computed flux
+    height_map += K * q
+    return q
+

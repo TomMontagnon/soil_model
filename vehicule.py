@@ -26,8 +26,6 @@ class Vehicule:
         """
         Apply the vehicule's interaction to the height map.
         :param heap_pos: Position where the soil will be accumulated.
-
-        ATTENTION : tmp = var[mask] affectation will copy the data.
         """
         y, x = self.position
         h, w = self.mask.shape
@@ -48,7 +46,6 @@ class Vehicule:
         chunk[mask] = np.minimum(chunk[mask], - PARAMS["vehicule_depth"])
 
         soil_amount = np.sum(np.abs(chunk_saved - chunk[mask]))
-        print(heap_pos)
         grid[heap_pos] += soil_amount
 
 

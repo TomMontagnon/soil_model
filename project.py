@@ -13,8 +13,9 @@ np.set_printoptions(linewidth=200, threshold=np.inf)
 
 
 def traj_generator(traj_type):
+    if PARAMS["nb_checkpoints"] < 2:
+        raise ValueError(f"Traj need at least 2 checkpoint")
     traj_comp = list()
-
     if traj_type == "X":
         traj_comp.append(generate_linear_trajectory((100, 100), (800, 800), PARAMS["nb_checkpoints"] // 2))
         traj_comp.append(generate_linear_trajectory((800, 100), (100, 800), PARAMS["nb_checkpoints"] // 2))
@@ -50,24 +51,26 @@ def run(traj_type):
 
 
 
-def register_run_speedup():
-    name = "cell_len_values"
-    git_tag = "v1.0"
+def register_speedup():
+    name = "cell_edge_length"
+    unit = "[mm]"
+    git_tag = "v2.0"
     traj_type = "X"
     measures = dict()
+    hm_states = dict()
+    parameter_variations = [100,50,40,25,20,10,8,5,4,2]
+    #parameter_variations = [100,80,60,40,30,25,20,15,10]
 
-    parameter_variations = [100,50,40,25,20,10,8,5,4,2,1]
-    parameter_variations = [100,50,40,25,20,10,8,5,4]
-
+    run(traj_type) #TO keep the first compilation time out of measures
     for param in parameter_variations:
-        PARAMS["cell_edge_length"] = param
+        PARAMS[name] = param
         conf_update()
-
         start = time.time()
         run(traj_type)
         elapsed_time = time.time() - start
 
-        measures[param]= f"{elapsed_time:.3f}"
+        measures[param] = f"{elapsed_time:.3f}"
+        hm_states[param] = HM_STATES[-1][0]
         print(measures)
 
 
@@ -78,7 +81,9 @@ def register_run_speedup():
                         traj_planned=TRAJ_PLANNED,
                         param=PARAMS,
                         name=name,
-                        measures=measures)
+                        measures=measures,
+                        unit=unit,
+                        hm_states=hm_states)
 
 def register_run():
     traj_type = "X"
@@ -98,12 +103,17 @@ def register_run():
 
 def register_erosion():
     name = "erosion"
-
+    PARAMS["grid_size"] = (25,25)
     # Initialize the simulator
     simulator = SandSimulator(grid_size=PARAMS["grid_size"])
     height_map_center = tuple(np.array(PARAMS["grid_size"]) // 2)
-    simulator.height_map[height_map_center] = 10000
-    simulator.simulate_erosion_cuda(register=True)
+    simulator.height_map[height_map_center] = 1000
+
+    VHL_MASK = ellipse_generator(PARAMS["ellipse_semi_minor_axis"], PARAMS["ellipse_semi_major_axis"])
+    vhl = Vehicule(mask=VHL_MASK, simulator=simulator)
+
+
+    simulator.simulate_erosion_jit(register=True)
 
 
     filename = f"{name} {datetime.now().strftime('%Y-%m-%d %H:%M')}"
@@ -115,5 +125,5 @@ def register_erosion():
 # Example usage
 if __name__ == "__main__":
     #register_run()
-    register_run_speedup()
+    register_speedup()
     #register_erosion()
