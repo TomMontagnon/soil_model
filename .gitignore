@@ -1,0 +1,8 @@
+venv/
+.ipynb_checkpoints
+__pycache__
+.git
+data/erosions/
+data/miscellaneous/
+data/runs/
+data/speedups
