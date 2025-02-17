@@ -6,14 +6,10 @@ import tqdm
 
 class Vehicule:
     def __init__(self, mask, simulator):
+        """Initialize the vehicle with a mask and link it to the simulator."""
         global VHL_MASK
-        """
-        Initialize a vehicule to interact with the height map.
-        :param mask: A matrix representing the vehicule's mask.
-        :param simulator: Instance of SandSimulator to modify the height map.
-        """
         self.mask = VHL_MASK = mask
-        self.normal_map = generate_normal_map(mask)
+        #self.normal_map = generate_normal_map(mask)
 
         # Calculate the center of the vehicule's mask (Y, X coordinates)
         self.mask_center = ((mask.shape[0] - 1) // 2, (mask.shape[1] - 1) // 2)  # (Y, X)
@@ -23,10 +19,7 @@ class Vehicule:
 
 
     def interact_with_sand(self, heap_pos):
-        """
-        Apply the vehicule's interaction to the height map.
-        :param heap_pos: Position where the soil will be accumulated.
-        """
+        """Interact with the sand height map at the current position, displacing soil."""
         y, x = self.position
         h, w = self.mask.shape
         grid = self.simulator.height_map
@@ -50,12 +43,7 @@ class Vehicule:
 
 
     def define_new_heap_pushed_position(self, prev_pos):
-        """
-        Determine the position for the new heap of pushed soil.
-        Requires a convex mask.
-        :param prev_pos: The previous position of the vehicule.
-        :return: Coordinates of the new heap position.
-        """
+        """Define the position to push the displaced soil based on movement direction."""
         tmp_heap_pos = np.array(self.mask_center).astype(float)
         direc = self.position - prev_pos
         if np.all(direc==0):
@@ -74,18 +62,11 @@ class Vehicule:
     
 
     def global_coord(self, local_coords):
-        """
-        Convert local mask coordinates to global grid coordinates.
-        :param local_coords: Tuple of local (y, x) coordinates within the mask.
-        :return: Tuple of global (y, x) coordinates in the grid.
-        """
+        """Convert local coordinates within the mask to global grid coordinates."""
         return self.position[0] + local_coords[0], self.position[1] + local_coords[1]
 
     def follow_trajectory(self, trajectory):
-        """
-        Make the vehicule follow a trajectory.
-        :param trajectory: List of tuples (x, y) representing successive positions.
-        """
+        """Make the vehicle follow a trajectory and interact with the sand at each step."""
         leng = trajectory.shape[0]
         self.position = trajectory[0]
         self.simulator.vehicule_trajectory.append(self.global_coord(self.mask_center))
@@ -99,5 +80,5 @@ class Vehicule:
             self.interact_with_sand(heap_pos)
 
             # Simulate erosion after interaction
-            self.simulator.simulate_erosion_cuda()
+            self.simulator.simulate_erosion()
 
