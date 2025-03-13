@@ -65,13 +65,13 @@ def run(traj_type):
 def register_speedup():
     """Measure simulation time across multiple resolutions."""
 
-    name = "cell_edge_length"
-    unit = "[mm]"
-    git_tag = "v2.0"
+    name = "erosion threshhold"
+    unit = "[mm^3]"
+    git_tag = "v1.1"
     traj_type = "X"
     measures = dict()
     hm_states = dict()
-    parameter_variations = [100,50,40,25,20,10,8,5,4,2]
+    parameter_variations = [10,20,30,50,70,90,150,300,600]
     #parameter_variations = [100,80,60,40,30,25,20,15,10]
 
     run(traj_type) #Perform fake run to compile NUMBA function

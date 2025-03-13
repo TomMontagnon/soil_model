@@ -1,6 +1,7 @@
 from scipy.ndimage import gaussian_filter, binary_erosion
 from noise import snoise2
 import numpy as np
+import open3d as o3d
 
 def generate_normal_map(vhl_mask):
     """
@@ -139,3 +140,64 @@ def generate_nonflat_field(grid_size, random_seed):
             height_map[y][x] = int(50 * new_value)  # Scale the noise value
         
     return height_map
+
+
+
+def point_array_to_heightmap(pts, shape, cell_size):
+    y_bins, x_bins = shape
+    heightmap = np.full((y_bins, x_bins), np.nan, dtype=np.float32)
+    counts = np.zeros((y_bins, x_bins), dtype=np.int32)
+    
+    # Accumulate heights for each grid cell
+    for x, y, z in pts:
+        x_idx = int(x / cell_size)
+        y_idx = int(y / cell_size)
+        if not (0 <= x_idx < x_bins and 0 <= y_idx < y_bins):
+            raise ValueError("Generate cell coordonates out of grid.")
+        if np.isnan(heightmap[y_idx, x_idx]):
+            heightmap[y_idx, x_idx] = z
+        else:
+            heightmap[y_idx, x_idx] += z
+        counts[y_idx, x_idx] += 1
+
+    # Average heights
+    valid_cells = counts > 0
+    if np.any(valid_cells):
+        heightmap[valid_cells] /= counts[valid_cells]
+    else:
+        raise ValueError("No valid points found for heightmap generation.")
+    return heightmap
+
+def point_clouds_to_heightmap(pcds, cell_size):
+    """Convert an Open3D point cloud to a heightmap (NumPy array) by averaging point heights within each grid cell."""
+
+
+    padding = 1
+    points = []
+    for pcd in pcds:
+        points.append(np.asarray(pcd.points))
+
+        if points[-1].size == 0:
+            raise ValueError("Input point cloud is empty.")
+
+    x_min = np.min([np.min(pts[:, 0]) for pts in points]) - padding
+    x_max = np.max([np.max(pts[:, 0]) for pts in points]) + padding
+    y_min = np.min([np.min(pts[:, 1]) for pts in points]) - padding
+    y_max = np.max([np.max(pts[:, 1]) for pts in points]) + padding
+
+    points = [pts - np.array([x_min, y_min, 0]) for pts in points]
+
+    # Define grid size
+    x_bins = int((x_max - x_min) / cell_size) + 1
+    y_bins = int((y_max - y_min) / cell_size) + 1
+    if x_bins < 10 or y_bins < 10:
+        raise ValueError(f"Too small dimensions : ({y_bins}, {x_bins}).")
+
+    heightmaps = [point_array_to_heightmap(pts, (y_bins, x_bins), cell_size) for pts in points]
+    return heightmaps, (y_bins, x_bins)
+
+
+def ros_odom_to_trajectory(ros_odom_array, shape, nb_checkpoints):
+    return np.zeros((nb_checkpoints, 2),np.nan)
+
+
